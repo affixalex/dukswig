@@ -7,6 +7,9 @@ to upstream Duktape support to mainline SWIG, it will be desirable to support
 both use cases. Debian Unstable currently packages a shared Duktape and other 
 distributions are likely to follow, so this may become fairly common.
 
+https://github.com/svaarala/duktape/pull/959
+https://github.com/svaarala/duktape/issues/930
+
 ## Overall Plan
 
 1. Update configure.ac to search for a Duktape installation

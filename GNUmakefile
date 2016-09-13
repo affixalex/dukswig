@@ -1,16 +1,16 @@
 UNAME_S := $(shell uname -s)
 
+#-DDUK_OPT_NO_BROWSER_LIKE
 DUK_CFLAGS = -DDUK_OPT_VERBOSE_ERRORS \
 	-DDUK_OPT_PARANOID_ERRORS \
 	-DDUK_OPT_AUGMENT_ERRORS \
-	-DDUK_OPT_NO_BROWSER_LIKE \
 	-DDUK_OPT_NO_BUFFEROBJECT_SUPPORT \
 	-DDUK_OPT_NO_COMMONJS_MODULES \
 	-DDUK_OPT_JSON_STRINGIFY_FASTPATH \
 	-DDUK_OPT_INTERRUPT_COUNTER \
 	-DDUK_OPT_FASTINT
 
-libduktape.so.1.5.0:
+libduktape:
 ifeq ($(UNAME_S),Linux)
 	gcc $(DUK_CFLAGS) -shared -fPIC -std=c99 src/duktape.c -o libduktape.so
 else ifeq ($(UNAME_S),Darwin)
@@ -18,7 +18,7 @@ else ifeq ($(UNAME_S),Darwin)
 	-o libduktape.dylib
 endif
 
-all: libduktape.so
+all: libduktape
 
 clean:
 ifeq ($(UNAME_S),Linux)
@@ -27,7 +27,7 @@ else ifeq ($(UNAME_S),Darwin)
 	rm -f libduktape.dylib
 endif
 	
-install: libduktape.so
+install: libduktape
 ifeq ($(UNAME_S),Linux)
 	sudo cp libduktape.so /usr/local/lib
 else ifeq ($(UNAME_S),Darwin)
@@ -42,5 +42,5 @@ ifeq ($(UNAME_S),Linux)
 else ifeq ($(UNAME_S),Darwin)
 	sudo rm -f /usr/local/lib/libduktape.dylib
 endif
-	sudo rm -f /usr/include/duktape.h
-	sudo rm -f /usr/include/duk_config.h
+	sudo rm -f /usr/local/include/duktape.h
+	sudo rm -f /usr/local/include/duk_config.h
