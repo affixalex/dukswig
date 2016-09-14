@@ -1,6 +1,7 @@
 // ----- Object creation -----
 
 // Print out the value of some enums
+print(typeof(example.Foo));
 print("*** color ***");
 print("    RED    =" + example.RED);
 print("    BLUE   =" + example.BLUE);

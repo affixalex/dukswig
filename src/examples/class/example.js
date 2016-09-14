@@ -7,7 +7,6 @@ print(typeof(example.Shape.nshapes));
 print(typeof(example.Circle));
 print(typeof(example.Circle.area));
 
-example.Circle(10);
 print("Creating some objects:");
 c = new example.Circle(10);
 print("Created circle " + c);
