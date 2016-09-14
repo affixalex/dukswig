@@ -2,6 +2,11 @@
 
 // ----- Object creation -----
 
+print(typeof(example.Shape));
+print(typeof(example.Shape.nshapes));
+print(typeof(example.Circle));
+print(typeof(example.Circle.area));
+
 example.Circle(10);
 print("Creating some objects:");
 c = new example.Circle(10);
@@ -21,6 +26,8 @@ c.x = 20;
 c.y = 30;
 s.x = -10;
 s.y = 5;
+
+print(c.area());
 
 print("\nHere is their new position:");
 print("Circle = (" + c.x + "," + c.y + ")");

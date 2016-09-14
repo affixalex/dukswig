@@ -3,12 +3,16 @@
 // This file illustrates class C++ interface generated
 // by SWIG.
 
+print(typeof(example.MyWorld));
+print(typeof(example.MyWorld.World));
+
 // Calling a module function ( aka global function )
 if (example.module_function() !== 7) {
   throw new Error("example.module_function() should equal 7");
 }
 print("example.module_function(): " + example.module_function());
 
+print(typeof(example.module_variable));
 // Accessing a module (aka global) variable
 if (example.module_variable !== 9) {
   throw new Error("example.module_variable should equal 9");
@@ -16,8 +20,6 @@ if (example.module_variable !== 9) {
 print("example.module_variable: " + example.module_variable);
 
 // Creating an instance of the class
-print(typeof(example.MyWorld));
-print(typeof(example.MyWorld.World));
 var w1 = new example.MyWorld.World();
 print("Creating class instance: w1 = new example.MyWorld.World(): " + w1);
 

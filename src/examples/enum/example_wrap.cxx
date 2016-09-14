@@ -780,8 +780,8 @@ extern "C" {
 /* Structure for variable linking table */
 typedef struct {
   const char *name;
-  duk_idx_t get;
-  duk_idx_t set;
+  duk_c_function get;
+  duk_c_function set;
 } swig_duk_var_info;
 
 typedef struct swig_duk_method {
@@ -806,12 +806,12 @@ typedef struct {
 } swig_duk_property;
 
 struct swig_duk_class;
-/* Can be used to create namespaces. Currently used to wrap class static methods/variables/constants */
+/* Can be used to create namespaces. */
 typedef struct swig_duk_namespace {
-  const char            *name;
-  swig_duk_method       *ns_methods;
-  swig_duk_property     *ns_properties;
-  swig_duk_const_info   *ns_constants;
+  const char *name;
+  duk_function_list_entry *ns_methods;
+  swig_duk_property *ns_properties;
+  swig_duk_const_info *ns_constants;
   struct swig_duk_class **ns_classes;
   struct swig_duk_namespace **ns_namespaces;
 } swig_duk_namespace;
@@ -851,9 +851,10 @@ typedef struct {
 
 SWIGRUNTIME duk_ret_t _wrap_SwigObject_disown(duk_context *ctx)
 {
+  duk_size_t sz;
   duk_push_this(ctx);
   duk_get_prop_string(ctx, -1, "\FFprivate");
-  swig_duk_userdata *udata = (swig_duk_userdata *)duk_get_pointer(ctx, -1);
+  swig_duk_userdata *udata = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);
   udata->own = false;
   duk_pop_n(ctx, 2); /* Clean up stack */
   return 0; // undefined
@@ -861,10 +862,11 @@ SWIGRUNTIME duk_ret_t _wrap_SwigObject_disown(duk_context *ctx)
 
 SWIGRUNTIME duk_ret_t _wrap_SwigObject_getCPtr(duk_context *ctx)
 {
+  duk_size_t sz;
   long result;
   duk_push_this(ctx);
   duk_get_prop_string(ctx, -1, "\FFprivate");
-  swig_duk_userdata *udata = (swig_duk_userdata *)duk_get_pointer(ctx, -1);
+  swig_duk_userdata *udata = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);
   duk_pop_n(ctx, 2);
 
   result = (long)udata->ptr;
@@ -876,6 +878,7 @@ SWIGRUNTIME duk_ret_t _wrap_SwigObject_getCPtr(duk_context *ctx)
 SWIGRUNTIME duk_ret_t _wrap_SwigObject_equals(duk_context *ctx)
 {
   bool result;
+  duk_size_t sz1, sz2;
 
   if(duk_get_top(ctx) != 2) {
     duk_push_string(ctx, "Comparison requires two arguments.");
@@ -883,11 +886,11 @@ SWIGRUNTIME duk_ret_t _wrap_SwigObject_equals(duk_context *ctx)
   }
 
   duk_get_prop_string(ctx, -1, "\FFprivate");
-  swig_duk_userdata *udata = (swig_duk_userdata *)duk_get_pointer(ctx, -1);
+  swig_duk_userdata *udata = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz1);
   duk_pop(ctx);
 
   duk_get_prop_string(ctx, -2, "\FFprivate");
-  swig_duk_userdata *udata2 = (swig_duk_userdata *)duk_get_pointer(ctx, -1);
+  swig_duk_userdata *udata2 = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz2);
   duk_pop(ctx);
 
   result = (udata->ptr == udata2->ptr);
@@ -946,7 +949,7 @@ SWIGRUNTIME duk_function_list_entry _SwigObject_functions[] = {
   duk_push_boolean(ctx, b)
 
 /* special helper for allowing 'undefined' for usertypes */
-#define SWIG_isptrtype(ctx,I) (duk_is_pointer(ctx,I) || duk_is_undefined(ctx,I))
+#define SWIG_isptrtype(ctx,I) (duk_is_fixed_buffer(ctx,I) || duk_is_undefined(ctx,I))
 
 #define SWIG_exception_fail
 
@@ -1017,6 +1020,7 @@ swig_duk_install_properties(
   swig_duk_property *properties)
 {
   assert(duk_is_object(ctx, obj_idx)); /* This better be the right object! */
+  /* The target object is on top of the value stack after each iteration. */
   for(swig_duk_property *prop = properties; (*prop).name != NULL; prop++) {
     #ifdef SWIGRUNTIME_DEBUG
     printf("Installing property: %s\n", prop->name);
@@ -1032,23 +1036,26 @@ swig_duk_install_properties(
 SWIGINTERN void SWIG_duk_create_class_registry(duk_context *ctx)
 {
   /* create the SWIG registry object */
-  duk_push_heap_stash(ctx);
+  duk_set_top(ctx, 0);
+  duk_push_global_stash(ctx);
+  duk_push_string(ctx, "registry");
   duk_push_object(ctx);
-  duk_put_prop_string(ctx, -2, "SWIG");
-  duk_pop(ctx);
+  duk_put_prop(ctx, -3);
+  /* The heap stash is at the top of the value stack now. */
 }
 
 
 /* gets the swig registry (or creates it) */
 SWIGINTERN void SWIG_duk_get_class_registry(duk_context *ctx) {
-  duk_push_heap_stash(ctx);
-  duk_get_prop_string(ctx, -1, "SWIG");
+  duk_set_top(ctx, 0);
+  duk_push_global_stash(ctx);
+  duk_get_prop_string(ctx, -1, "registry");
   if (!duk_is_object(ctx,-1))  /* not there */
   {  /* must be first time, so add it */
     duk_pop_n(ctx,1);  /* remove the result */
     SWIG_duk_create_class_registry(ctx);
-    /* then get it */
-    duk_get_prop_string(ctx, -1, "SWIG");
+    /* then get the class registry */
+    duk_get_prop_string(ctx, -1, "registry");
   }
 }
 
@@ -1067,6 +1074,9 @@ SWIGINTERN void SWIG_duk_get_class_prototype(duk_context *ctx,const char *cname)
 /* helper to add prototype to new duk object */
 SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
 {
+  #ifdef SWIGRUNTIME_DEBUG
+  printf("Adding prototype!\n");
+  #endif
   if (type->clientdata)  /* there is clientdata: so add the prototype */
   {
     #ifdef SWIGRUNTIME_DEBUG
@@ -1084,12 +1094,15 @@ SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
   }
 }
 
-/* pushes a new fixed buffer into the duk stack */
+/* pushes a new userdata buffer into the duk stack */
 SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_type_info *type,bool own)
 {
-  duk_size_t sz; /* FIXME */
+  duk_size_t sz;
   swig_duk_userdata *usr;
   if (!ptr){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("WARNING: NewPointerObj returning a NULL pointer.\n");
+    #endif
     duk_push_undefined(ctx);
     return 1;
   }
@@ -1097,7 +1110,7 @@ SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_typ
   usr->ptr=ptr;  /* set the ptr */
   usr->type=type;
   usr->own=own;
-  SWIG_duk_AddPrototype(ctx,type); /* add prototype */
+  //SWIG_duk_AddPrototype(ctx,type); /* add prototype */
   return 1;
 }
 
@@ -1111,7 +1124,13 @@ SWIGRUNTIME int SWIG_duk_ConvertPtr(duk_context *ctx,void *object,void **ptr,swi
   duk_push_heapptr(ctx, object);
   duk_get_prop_string(ctx, -1, "\FFprivate");
   /* special case: duk undefined => NULL pointer */
-  if (duk_is_undefined(ctx, -1)){*ptr=NULL; return SWIG_OK;}
+  if (duk_is_undefined(ctx, -1)){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("Converted a NULL pointer.\n");
+    #endif
+    *ptr=NULL;
+    return SWIG_OK;
+  }
   usr=(swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);  /* get data */
   duk_pop_n(ctx, 2); /* clean up the stack */
   if (usr) {
@@ -1193,11 +1212,15 @@ typedef struct{} LANGUAGE_OBJ;
 static duk_ret_t _wrap_RED(duk_context *ctx)
 {
   /* FRAGMENT: js_getter */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called js_getter _wrap_RED...\n");
+#endif
   /* The object must be on the top of the value stack on entry. */
+  
+  
+  
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
-  
   
   duk_push_number(ctx, (duk_double_t) RED); 
   
@@ -1209,11 +1232,15 @@ static duk_ret_t _wrap_RED(duk_context *ctx)
 static duk_ret_t _wrap_BLUE(duk_context *ctx)
 {
   /* FRAGMENT: js_getter */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called js_getter _wrap_BLUE...\n");
+#endif
   /* The object must be on the top of the value stack on entry. */
+  
+  
+  
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
-  
   
   duk_push_number(ctx, (duk_double_t) BLUE); 
   
@@ -1225,11 +1252,15 @@ static duk_ret_t _wrap_BLUE(duk_context *ctx)
 static duk_ret_t _wrap_GREEN(duk_context *ctx)
 {
   /* FRAGMENT: js_getter */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called js_getter _wrap_GREEN...\n");
+#endif
   /* The object must be on the top of the value stack on entry. */
+  
+  
+  
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
-  
   
   duk_push_number(ctx, (duk_double_t) GREEN); 
   
@@ -1243,8 +1274,14 @@ static duk_ret_t _wrap_GREEN(duk_context *ctx)
 
 static duk_idx_t _wrap_new_Foo(duk_context *ctx)
 {
-  /* FRAGMENT: js_ctor */  
+  /* FRAGMENT: js_ctor */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called _wrap_new_Foo\n");
+#endif
   if (duk_get_top(ctx) != 0) {
+#ifdef SWIGRUNTIME_DEBUG
+    printf("Illegal number of arguments for _wrap_new_Foo\n");
+#endif
     duk_push_string(ctx, "Illegal number of arguments for _wrap_new_Foo.");
     duk_throw(ctx);
   }
@@ -1254,21 +1291,26 @@ static duk_idx_t _wrap_new_Foo(duk_context *ctx)
   
   
   duk_push_this(ctx);
+  duk_push_string(ctx, "\FFprivate");
   SWIG_duk_NewPointerObj(ctx, result, SWIGTYPE_p_Foo, SWIG_POINTER_OWN);  
-  duk_put_prop_string(ctx, -2, "\FFprivate");
+  duk_put_prop(ctx, -3);
   
-  return 1;
+  return 0;
 }
 
 
 static duk_ret_t _wrap_Foo_IMPULSE(duk_context *ctx)
 {
   /* FRAGMENT: js_getter */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called js_getter _wrap_Foo_IMPULSE...\n");
+#endif
   /* The object must be on the top of the value stack on entry. */
+  
+  
+  
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
-  
   
   duk_push_number(ctx, (duk_double_t) Foo::IMPULSE); 
   
@@ -1280,11 +1322,15 @@ static duk_ret_t _wrap_Foo_IMPULSE(duk_context *ctx)
 static duk_ret_t _wrap_Foo_WARP(duk_context *ctx)
 {
   /* FRAGMENT: js_getter */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called js_getter _wrap_Foo_WARP...\n");
+#endif
   /* The object must be on the top of the value stack on entry. */
+  
+  
+  
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
-  
   
   duk_push_number(ctx, (duk_double_t) Foo::WARP); 
   
@@ -1296,11 +1342,15 @@ static duk_ret_t _wrap_Foo_WARP(duk_context *ctx)
 static duk_ret_t _wrap_Foo_LUDICROUS(duk_context *ctx)
 {
   /* FRAGMENT: js_getter */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called js_getter _wrap_Foo_LUDICROUS...\n");
+#endif
   /* The object must be on the top of the value stack on entry. */
+  
+  
+  
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
-  
   
   duk_push_number(ctx, (duk_double_t) Foo::LUDICROUS); 
   
@@ -1318,7 +1368,6 @@ static duk_ret_t _wrap_Foo_enum_test(duk_context *ctx)
   }
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
   
   Foo *arg1 = (Foo *) 0 ;
   Foo::speed arg2 ;
@@ -1341,8 +1390,7 @@ static duk_ret_t _wrap_delete_Foo(duk_context *ctx)
   /* FRAGMENT: js_dtoroverride */
   duk_push_this(ctx);
   duk_get_prop_string(ctx, -1, "\FFprivate");
-  void *private_data = duk_get_pointer(ctx, -1);
-  swig_duk_rawdata* t = (swig_duk_rawdata*)private_data;
+  swig_duk_rawdata *t = (swig_duk_rawdata*)duk_get_pointer(ctx, -1);
   if(t) {
     if (t->own) {
       Foo * arg1 = (Foo *)t->data;
@@ -1351,10 +1399,10 @@ static duk_ret_t _wrap_delete_Foo(duk_context *ctx)
     // remove the private data to make sure that it isn't accessed elsewhere
     duk_push_pointer(ctx, NULL);
     duk_put_prop(ctx, -2);
-    // FIXME JSObjectSetPrivate(thisObject, NULL);
     duk_free(ctx, t);
     return 0;
   }
+  return 0;
 }
 
 
@@ -1417,7 +1465,6 @@ static duk_ret_t _wrap_enum_test(duk_context *ctx)
   }
   duk_push_this(ctx);
   void *thisObject = duk_get_heapptr(ctx, -1);
-  duk_pop(ctx);
   
   color arg1 ;
   Foo::speed arg2 ;
@@ -1769,10 +1816,9 @@ duk_push_object(ctx);
 duk_put_function_list(ctx, -1, _SwigObject_functions);
 duk_put_prop_string(ctx, -2, "SWIG");
 void *swig_obj_ptr = duk_get_heapptr(ctx, -1);
-//duk_pop_n(ctx, 1);
-
+/* Now the global object is at the stack top.*/
 duk_idx_t ns_idx = duk_push_object(ctx);
-void *ns_ptr = duk_get_heapptr(ctx, -1);
+void *ns_ptr, *exports_ptr = duk_get_heapptr(ctx, -1);
 swig_duk_install_properties(ctx, ns_idx, exports_properties);
 duk_put_function_list(ctx, ns_idx, exports_functions);
 /*
@@ -1786,37 +1832,41 @@ duk_put_prop_string(ctx, -2, "example");
 /* Register classes */
 
 /* FRAGMENT: duk_class_definition */
-/* FIXME: Specify number of arguments during codegen. */
-duk_idx_t _exports_Foo_idx = duk_push_c_function(ctx, _wrap_new_Foo, DUK_VARARGS);
-// FIXME USE _wrap_new_Foo
-void *_p_exports_Foo_ptr = duk_get_heapptr(ctx, -1);
-swig_duk_install_properties(ctx, _exports_Foo_idx, _exports_Foo_staticValues);
-duk_put_function_list(ctx, _exports_Foo_idx, _exports_Foo_staticFunctions);
-swig_duk_install_properties(ctx, _exports_Foo_idx, _exports_Foo_properties);
-duk_put_function_list(ctx, _exports_Foo_idx, _exports_Foo_functions);
-duk_push_c_function(ctx, _wrap_delete_Foo, 0);
-duk_set_finalizer(ctx, _exports_Foo_idx);
-duk_pop(ctx); /* Pop the finalizer C function from the stack */
+/* Push constructor function; all Duktape/C functions are
+	 * "constructable" and can be called as 'new Foo()'.
+	 */
+duk_push_c_function(ctx, _wrap_new_Foo, DUK_VARARGS);
+/* Push MyObject.prototype object. */
 
 /* FRAGMENT: duk_class_noinherit */
-duk_push_heap_stash(ctx);
-duk_get_prop_string(ctx, -1, "SWIG");
-duk_set_prototype(ctx, _exports_Foo_idx);
-void *_p_Foo_ptr; /*TEST*/
-//_exports_Foo_objectDefinition.parentClass = _SwigObject_classRef;
+/* Push a copy of the SWIG object to the value stack. */
+duk_push_heapptr(ctx, swig_obj_ptr);
+duk_dup(ctx, -1);
+duk_replace(ctx, -2);
 
 
-//_exports_Foo_classRef = JSClassCreate(&_exports_Foo_objectDefinition);
-SWIGTYPE_p_Foo->clientdata = _p_exports_Foo_ptr;
-//duk_pop_n(ctx, 2);
+/* The stack is now [constructor, prototype] */
+/* Install methods and static properties */
+swig_duk_install_properties(ctx, -1, _exports_Foo_staticValues);
+duk_put_function_list(ctx, -1, _exports_Foo_staticFunctions);
+swig_duk_install_properties(ctx, -1, _exports_Foo_properties);
+duk_put_function_list(ctx, -1, _exports_Foo_functions);
+/* Install finalizer into the prototype */
+duk_push_c_function(ctx, _wrap_delete_Foo, /*nargs*/ 0);
+duk_set_finalizer(ctx, -2);
+/* The stack is now [constructor, prototype (w/ finalizer)] */
+/* Set the constructor prototype to the ancestor object. */
+duk_set_prototype(ctx, -2);
+/* Setup references. */  
+void *_exports_Foo_ptr = duk_get_heapptr(ctx, -1);
+SWIGTYPE_p_Foo->clientdata = _exports_Foo_ptr;
 
 
 /* FRAGMENT: duk_class_registration */
-duk_push_heapptr(ctx, _pexports_ptr);
+duk_push_heapptr(ctx, exports_ptr);
 duk_push_string(ctx, "Foo");
-duk_push_heapptr(ctx, _p_exports_Foo_ptr);
+duk_push_heapptr(ctx, _exports_Foo_ptr);
 duk_put_prop(ctx, -3); /* Register class in the namespace */
-duk_pop(ctx); /* Pop the namespace pointer off the value stack. */
 
 
 

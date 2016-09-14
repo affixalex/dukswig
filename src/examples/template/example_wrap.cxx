@@ -780,8 +780,8 @@ extern "C" {
 /* Structure for variable linking table */
 typedef struct {
   const char *name;
-  duk_idx_t get;
-  duk_idx_t set;
+  duk_c_function get;
+  duk_c_function set;
 } swig_duk_var_info;
 
 typedef struct swig_duk_method {
@@ -806,14 +806,14 @@ typedef struct {
 } swig_duk_property;
 
 struct swig_duk_class;
-/* Can be used to create namespaces. Currently used to wrap class static methods/variables/constants */
+/* Can be used to create namespaces. */
 typedef struct swig_duk_namespace {
-  const char            *name;
-  swig_duk_method       *ns_methods;
-  swig_duk_property     *ns_properties;
-  swig_duk_const_info   *ns_constants;
-  struct swig_duk_class        **ns_classes;
-  struct swig_duk_namespace    **ns_namespaces;
+  const char *name;
+  duk_function_list_entry *ns_methods;
+  swig_duk_property *ns_properties;
+  swig_duk_const_info *ns_constants;
+  struct swig_duk_class **ns_classes;
+  struct swig_duk_namespace **ns_namespaces;
 } swig_duk_namespace;
 
 typedef struct swig_duk_class {
@@ -834,7 +834,7 @@ typedef struct swig_duk_class {
 */
 typedef struct {
   swig_type_info   *type;
-  int own;  /* 1 if owned & must be destroyed */
+  bool own;  /* true if owned & must be destroyed */
   void *ptr;
 } swig_duk_userdata;
 
@@ -845,16 +845,82 @@ to tell the two structures apart within SWIG, other than by looking at the type
 */
 typedef struct {
   swig_type_info   *type;
-  int     own;  /* 1 if owned & must be destroyed */
-  char data[1];       /* arbitary amount of data */    
+  bool     own;  /* true if owned & must be destroyed */
+  char data[1];  /* arbitary amount of data */    
 } swig_duk_rawdata;
+
+SWIGRUNTIME duk_ret_t _wrap_SwigObject_disown(duk_context *ctx)
+{
+  duk_size_t sz;
+  duk_push_this(ctx);
+  duk_get_prop_string(ctx, -1, "\FFprivate");
+  swig_duk_userdata *udata = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);
+  udata->own = false;
+  duk_pop_n(ctx, 2); /* Clean up stack */
+  return 0; // undefined
+}
+
+SWIGRUNTIME duk_ret_t _wrap_SwigObject_getCPtr(duk_context *ctx)
+{
+  duk_size_t sz;
+  long result;
+  duk_push_this(ctx);
+  duk_get_prop_string(ctx, -1, "\FFprivate");
+  swig_duk_userdata *udata = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);
+  duk_pop_n(ctx, 2);
+
+  result = (long)udata->ptr;
+  duk_push_number(ctx, (duk_double_t)result);
+
+  return 1;
+}
+
+SWIGRUNTIME duk_ret_t _wrap_SwigObject_equals(duk_context *ctx)
+{
+  bool result;
+  duk_size_t sz1, sz2;
+
+  if(duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Comparison requires two arguments.");
+    duk_throw(ctx);
+  }
+
+  duk_get_prop_string(ctx, -1, "\FFprivate");
+  swig_duk_userdata *udata = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz1);
+  duk_pop(ctx);
+
+  duk_get_prop_string(ctx, -2, "\FFprivate");
+  swig_duk_userdata *udata2 = (swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz2);
+  duk_pop(ctx);
+
+  result = (udata->ptr == udata2->ptr);
+  duk_push_boolean(ctx, result);
+
+  return 1;
+}
+
+SWIGRUNTIME duk_function_list_entry _SwigObject_functions[] = {
+  {
+    "disown",_wrap_SwigObject_disown, 0
+  },
+  {
+    "equals",_wrap_SwigObject_equals, 2
+  },
+  {
+    "getCPtr",_wrap_SwigObject_getCPtr, 0
+  },
+  {
+    NULL, NULL, 0
+  }
+};
+
 
 /* Common SWIG API */
 #define SWIG_NewPointerObj(ctx, ptr, type, owner)       SWIG_duk_NewPointerObj(ctx, (void *)ptr, type, owner)
-#define SWIG_ConvertPtr(ctx,idx, ptr, type, flags)    SWIG_duk_ConvertPtr(ctx,idx,ptr,type,flags)
-#define SWIG_MustGetPtr(ctx,idx, type,flags, argnum,fnname)  SWIG_duk_MustGetPtr(ctx,idx, type,flags, argnum,fnname)
+#define SWIG_ConvertPtr(ctx, obj, ptr, type, flags)    SWIG_duk_ConvertPtr(ctx,obj,ptr,type,flags)
+#define SWIG_MustGetPtr(ctx, obj, type,flags, argnum,fnname)  SWIG_duk_MustGetPtr(ctx,obj, type,flags, argnum,fnname)
 /* for C++ member pointers, ie, member methods */
-#define SWIG_ConvertMember(ctx, idx, ptr, sz, ty)       SWIG_duk_ConvertPacked(ctx, idx, ptr, sz, ty)
+#define SWIG_ConvertMember(ctx, obj, ptr, sz, ty)       SWIG_duk_ConvertPacked(ctx, obj, ptr, sz, ty)
 #define SWIG_NewMemberObj(ctx, ptr, sz, type)      SWIG_duk_NewPackedObj(ctx, ptr, sz, type)
 
 /* Runtime API */
@@ -863,15 +929,15 @@ typedef struct {
 /* helper #defines */
 #define SWIG_fail {goto fail;}
 #define SWIG_fail_arg(func_name,argnum,type) \
-  {SWIG_duk_pushferrstring(ctx,"Error in %s (arg %d), expected '%s' got '%s'",\
+  {duk_push_sprintf(ctx,"Error in %s (arg %d), expected '%s' got '%s'",\
   func_name,argnum,type,SWIG_duk_typename(ctx,argnum));\
-  goto fail;}
+  duk_throw(ctx);}
 #define SWIG_fail_ptr(func_name,argnum,type) \
   SWIG_fail_arg(func_name,argnum,(type && type->str)?type->str:"void*")
 #define SWIG_check_num_args(func_name,a,b) \
   if (duk_get_top(ctx)<a || duk_get_top(ctx)>b) \
-  {SWIG_duk_pushferrstring(ctx,"Error in %s expected %d..%d args, got %d",func_name,a,b,duk_get_top(ctx));\
-  goto fail;}
+  {duk_push_sprintf(ctx,"Error in %s expected %d..%d args, got %d",func_name,a,b,duk_get_top(ctx));\
+  duk_throw(ctx);}
 
 #define SWIG_duk_add_function(ctx,n,f) \
   (duk_pushstring(ctx, n), \
@@ -883,7 +949,9 @@ typedef struct {
   duk_push_boolean(ctx, b)
 
 /* special helper for allowing 'undefined' for usertypes */
-#define SWIG_isptrtype(ctx,I) (duk_is_pointer(ctx,I) || duk_is_undefined(ctx,I))
+#define SWIG_isptrtype(ctx,I) (duk_is_fixed_buffer(ctx,I) || duk_is_undefined(ctx,I))
+
+#define SWIG_exception_fail
 
 /* -----------------------------------------------------------------------------
  * global variable support code
@@ -919,9 +987,10 @@ const char *duk_typename(duk_context *ctx, duk_int_t type) {
 SWIGRUNTIME const char *SWIG_duk_typename(duk_context *ctx, duk_idx_t idx)
 {
   swig_duk_userdata *usr;
-  if (duk_is_pointer(ctx,idx))
+  duk_size_t sz;
+  if (duk_is_buffer(ctx,idx))
   {
-    usr=(swig_duk_userdata*)duk_to_pointer(ctx,idx);  /* get data */
+    usr=(swig_duk_userdata*)duk_get_buffer(ctx,idx,&sz);  /* get data */
     if (usr && usr->type && usr->type->str)
       return usr->type->str;
     return "userdata (unknown type)";
@@ -945,21 +1014,144 @@ SWIGINTERN duk_ret_t JS_veto_set_variable(duk_context *ctx)
  * This asserts that the target object is on the top of the value stack on entry.
  */
 SWIGINTERN void
-swig_duk_install_const_properties(
+swig_duk_install_properties(
   duk_context *ctx,
   duk_idx_t obj_idx,
   swig_duk_property *properties)
 {
   assert(duk_is_object(ctx, obj_idx)); /* This better be the right object! */
+  /* The target object is on top of the value stack after each iteration. */
   for(swig_duk_property *prop = properties; (*prop).name != NULL; prop++) {
     #ifdef SWIGRUNTIME_DEBUG
-    printf("Injecting %s\n", prop->name);
+    printf("Installing property: %s\n", prop->name);
     #endif
     duk_push_string(ctx, prop->name);
     duk_push_c_function(ctx, prop->getter, 0 /* nargs */);
     duk_push_c_function(ctx, prop->setter, 1 /* nargs */);
     duk_def_prop(ctx,obj_idx,DUK_DEFPROP_HAVE_GETTER|DUK_DEFPROP_HAVE_SETTER|DUK_DEFPROP_HAVE_CONFIGURABLE);
   }
+}
+
+/* creates the swig registry */
+SWIGINTERN void SWIG_duk_create_class_registry(duk_context *ctx)
+{
+  /* create the SWIG registry object */
+  duk_set_top(ctx, 0);
+  duk_push_global_stash(ctx);
+  duk_push_string(ctx, "registry");
+  duk_push_object(ctx);
+  duk_put_prop(ctx, -3);
+  /* The heap stash is at the top of the value stack now. */
+}
+
+
+/* gets the swig registry (or creates it) */
+SWIGINTERN void SWIG_duk_get_class_registry(duk_context *ctx) {
+  duk_set_top(ctx, 0);
+  duk_push_global_stash(ctx);
+  duk_get_prop_string(ctx, -1, "registry");
+  if (!duk_is_object(ctx,-1))  /* not there */
+  {  /* must be first time, so add it */
+    duk_pop_n(ctx,1);  /* remove the result */
+    SWIG_duk_create_class_registry(ctx);
+    /* then get the class registry */
+    duk_get_prop_string(ctx, -1, "registry");
+  }
+}
+
+/* Helper function to get the classes prototype from the register */
+SWIGINTERN void SWIG_duk_get_class_prototype(duk_context *ctx,const char *cname)
+{
+  SWIG_duk_get_class_registry(ctx);  /* get the registry */
+  duk_get_prop_string(ctx, -1, cname);  /* get the name */
+}
+
+
+/* -----------------------------------------------------------------------------
+ * Class/structure conversion fns
+ * ----------------------------------------------------------------------------- */
+
+/* helper to add prototype to new duk object */
+SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
+{
+  #ifdef SWIGRUNTIME_DEBUG
+  printf("Adding prototype!\n");
+  #endif
+  if (type->clientdata)  /* there is clientdata: so add the prototype */
+  {
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("Adding prototype %s\n", ((swig_duk_class*)type->clientdata)->fqname);
+    #endif
+    SWIG_duk_get_class_prototype(ctx,((swig_duk_class*)(type->clientdata))->fqname);
+    if (duk_is_object(ctx,-1)) {
+      // FIXME
+      duk_set_prototype(ctx,-2);
+    }
+    else
+    {
+      duk_pop_n(ctx,1);
+    }
+  }
+}
+
+/* pushes a new userdata buffer into the duk stack */
+SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_type_info *type,bool own)
+{
+  duk_size_t sz;
+  swig_duk_userdata *usr;
+  if (!ptr){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("WARNING: NewPointerObj returning a NULL pointer.\n");
+    #endif
+    duk_push_undefined(ctx);
+    return 1;
+  }
+  usr=(swig_duk_userdata*)duk_push_fixed_buffer(ctx,sizeof(swig_duk_userdata));  /* get data */
+  usr->ptr=ptr;  /* set the ptr */
+  usr->type=type;
+  usr->own=own;
+  //SWIG_duk_AddPrototype(ctx,type); /* add prototype */
+  return 1;
+}
+
+/* takes a object from the duk stack & converts it into an object of the correct type
+ (if possible) */
+SWIGRUNTIME int SWIG_duk_ConvertPtr(duk_context *ctx,void *object,void **ptr,swig_type_info *type,int flags)
+{
+  duk_size_t sz;
+  swig_duk_userdata *usr;
+  swig_cast_info *cast;
+  duk_push_heapptr(ctx, object);
+  duk_get_prop_string(ctx, -1, "\FFprivate");
+  /* special case: duk undefined => NULL pointer */
+  if (duk_is_undefined(ctx, -1)){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("Converted a NULL pointer.\n");
+    #endif
+    *ptr=NULL;
+    return SWIG_OK;
+  }
+  usr=(swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);  /* get data */
+  duk_pop_n(ctx, 2); /* clean up the stack */
+  if (usr) {
+    if (flags & SWIG_POINTER_DISOWN) {
+      /* must disown the object */
+      usr->own=0;
+    }
+    if (!type) {
+      /* special cast void*, no casting fn */
+      *ptr=usr->ptr;
+      return SWIG_OK; /* ok */
+    }
+    cast=SWIG_TypeCheckStruct(usr->type,type); /* performs normal type checking */
+    if (cast) {
+      int newmemory = 0;
+      *ptr=SWIG_TypeCast(cast,usr->ptr,&newmemory);
+      assert(!newmemory); /* newmemory handling not yet implemented */
+      return SWIG_OK;  /* ok */
+    }
+  }
+  return SWIG_ERROR;  /* error */
 }
 
 /* -----------------------------------------------------------------------------
@@ -1034,212 +1226,222 @@ SWIGINTERN void vector_Sl_double_Sg__setitem(vector< double > *self,int index,do
 
 
 
-static duk_idx_t _wrap_maxint(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_maxint(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_maxint. Expected 2");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   int arg1 ;
   int arg2 ;
   int result;
   
-  duk_idx_t jsresult;
-  
-  if(argc != 2) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_maxint.");
-  
-  arg1 = (int)duk_to_number(ctx, argv[0]);
-  arg2 = (int)duk_to_number(ctx, argv[1]);
+  arg1 = (int)duk_to_number(ctx, -0);
+  arg2 = (int)duk_to_number(ctx, -1);
   result = (int)max< int >(arg1,arg2);
   duk_push_number(ctx, (duk_double_t) result); 
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_maxdouble(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_maxdouble(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_maxdouble. Expected 2");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   double arg1 ;
   double arg2 ;
   double result;
   
-  duk_idx_t jsresult;
-  
-  if(argc != 2) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_maxdouble.");
-  
-  arg1 = (double)duk_to_number(ctx, argv[0]);
-  arg2 = (double)duk_to_number(ctx, argv[1]);
+  arg1 = (double)duk_to_number(ctx, -0);
+  arg2 = (double)duk_to_number(ctx, -1);
   result = (double)max< double >(arg1,arg2);
   duk_push_number(ctx, (duk_double_t) result); 
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-/* FRAGMENT: duk_class_declaration */
-static JSClassDefinition _exports_vecint_classDefinition;
-static JSClassDefinition _exports_vecint_objectDefinition;
-static JSClassRef _exports_vecint_classRef;
+/* FRAGMENT: duk_class_declaration (unused with Duktape) */
 
 
 static duk_idx_t _wrap_new_vecint(duk_context *ctx)
 {
   /* FRAGMENT: js_ctor */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called _wrap_new_vecint\n");
+#endif
   if (duk_get_top(ctx) != 1) {
+#ifdef SWIGRUNTIME_DEBUG
+    printf("Illegal number of arguments for _wrap_new_vecint\n");
+#endif
     duk_push_string(ctx, "Illegal number of arguments for _wrap_new_vecint.");
     duk_throw(ctx);
   }
   int arg1 ;
   vector< int > *result;
-  arg1 = (int)duk_to_number(ctx, argv[0]);
+  arg1 = (int)duk_to_number(ctx, -0);
   result = (vector< int > *)new vector< int >(arg1);
   
   
-  return SWIG_duk_NewPointerObj(context, result, SWIGTYPE_p_vectorT_int_t, SWIG_POINTER_OWN);
   
-fail:
-  duk_push_string("An unknown error occurred!\n");
-  duk_throw(ctx);
+  duk_push_this(ctx);
+  duk_push_string(ctx, "\FFprivate");
+  SWIG_duk_NewPointerObj(ctx, result, SWIGTYPE_p_vectorT_int_t, SWIG_POINTER_OWN);  
+  duk_put_prop(ctx, -3);
+  
+  return 0;
 }
 
 
-static duk_idx_t _wrap_vecint_get(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecint_get(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 1) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecint_get. Expected 1");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< int > *arg1 = (vector< int > *) 0 ;
   int arg2 ;
   int *result = 0 ;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 1) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecint_get.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_int_t,0))){
     SWIG_fail_ptr("vecint_get",1,SWIGTYPE_p_vectorT_int_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
+  arg2 = (int)duk_to_number(ctx, -0);
   result = (int *) &(arg1)->get(arg2);
   SWIG_NewPointerObj(ctx,result,SWIGTYPE_p_int,0);  
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_vecint_set(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecint_set(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecint_set. Expected 2");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< int > *arg1 = (vector< int > *) 0 ;
   int arg2 ;
   int *arg3 = 0 ;
   int **argp3 ;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 2) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecint_set.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_int_t,0))){
     SWIG_fail_ptr("vecint_set",1,SWIGTYPE_p_vectorT_int_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
+  arg2 = (int)duk_to_number(ctx, -0);
   
-  if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,argv[1],(void**)&argp3,SWIGTYPE_p_p_int,0))){
+  if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,-1,(void**)&argp3,SWIGTYPE_p_p_int,0))){
     SWIG_fail_ptr("vecint_set",3,SWIGTYPE_p_p_int);
   }
   arg3 = *argp3;
   
   (arg1)->set(arg2,*arg3);
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_vecint_getitem(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecint_getitem(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 1) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecint_getitem. Expected 1");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< int > *arg1 = (vector< int > *) 0 ;
   int arg2 ;
   int result;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 1) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecint_getitem.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_int_t,0))){
     SWIG_fail_ptr("vecint_getitem",1,SWIGTYPE_p_vectorT_int_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
+  arg2 = (int)duk_to_number(ctx, -0);
   result = (int)vector_Sl_int_Sg__getitem(arg1,arg2);
   duk_push_number(ctx, (duk_double_t) result); 
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_vecint_setitem(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecint_setitem(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecint_setitem. Expected 2");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< int > *arg1 = (vector< int > *) 0 ;
   int arg2 ;
   int arg3 ;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 2) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecint_setitem.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_int_t,0))){
     SWIG_fail_ptr("vecint_setitem",1,SWIGTYPE_p_vectorT_int_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
-  arg3 = (int)duk_to_number(ctx, argv[1]);
+  arg2 = (int)duk_to_number(ctx, -0);
+  arg3 = (int)duk_to_number(ctx, -1);
   vector_Sl_int_Sg__setitem(arg1,arg2,arg3);
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static void _wrap_delete_vecint(duk_idx_t thisObject)
+static duk_ret_t _wrap_delete_vecint(duk_context *ctx)
 {
   /* FRAGMENT: js_dtoroverride */
-  SwigPrivData* t = (SwigPrivData*) JSObjectGetPrivate(thisObject);
+  duk_push_this(ctx);
+  duk_get_prop_string(ctx, -1, "\FFprivate");
+  swig_duk_rawdata *t = (swig_duk_rawdata*)duk_get_pointer(ctx, -1);
   if(t) {
-    if (t->swigCMemOwn) {
-      vector< int > * arg1 = (vector< int > *)t->swigCObject;
+    if (t->own) {
+      vector< int > * arg1 = (vector< int > *)t->data;
       delete arg1;
     }
-    /* remove the private data to make sure that it isn't accessed elsewhere */
-    JSObjectSetPrivate(thisObject, NULL);
-    free(t);
+    // remove the private data to make sure that it isn't accessed elsewhere
+    duk_push_pointer(ctx, NULL);
+    duk_put_prop(ctx, -2);
+    duk_free(ctx, t);
+    return 0;
   }
+  return 0;
 }
 
 
@@ -1265,25 +1467,25 @@ static swig_duk_property _exports_vecint_properties[] = {
 static duk_function_list_entry _exports_vecint_functions[] = {
   /* FRAGMENT: duk_function_declaration */
   {
-    "get", _wrap_vecint_get, NULL
+    "get", _wrap_vecint_get, 1
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "set", _wrap_vecint_set, NULL
+    "set", _wrap_vecint_set, 2
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "getitem", _wrap_vecint_getitem, NULL
+    "getitem", _wrap_vecint_getitem, 1
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "setitem", _wrap_vecint_setitem, NULL
+    "setitem", _wrap_vecint_setitem, 2
   },
   
   
@@ -1293,164 +1495,174 @@ static duk_function_list_entry _exports_vecint_functions[] = {
 };
 
 
-/* FRAGMENT: duk_class_declaration */
-static JSClassDefinition _exports_vecdouble_classDefinition;
-static JSClassDefinition _exports_vecdouble_objectDefinition;
-static JSClassRef _exports_vecdouble_classRef;
+/* FRAGMENT: duk_class_declaration (unused with Duktape) */
 
 
 static duk_idx_t _wrap_new_vecdouble(duk_context *ctx)
 {
   /* FRAGMENT: js_ctor */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called _wrap_new_vecdouble\n");
+#endif
   if (duk_get_top(ctx) != 1) {
+#ifdef SWIGRUNTIME_DEBUG
+    printf("Illegal number of arguments for _wrap_new_vecdouble\n");
+#endif
     duk_push_string(ctx, "Illegal number of arguments for _wrap_new_vecdouble.");
     duk_throw(ctx);
   }
   int arg1 ;
   vector< double > *result;
-  arg1 = (int)duk_to_number(ctx, argv[0]);
+  arg1 = (int)duk_to_number(ctx, -0);
   result = (vector< double > *)new vector< double >(arg1);
   
   
-  return SWIG_duk_NewPointerObj(context, result, SWIGTYPE_p_vectorT_double_t, SWIG_POINTER_OWN);
   
-fail:
-  duk_push_string("An unknown error occurred!\n");
-  duk_throw(ctx);
+  duk_push_this(ctx);
+  duk_push_string(ctx, "\FFprivate");
+  SWIG_duk_NewPointerObj(ctx, result, SWIGTYPE_p_vectorT_double_t, SWIG_POINTER_OWN);  
+  duk_put_prop(ctx, -3);
+  
+  return 0;
 }
 
 
-static duk_idx_t _wrap_vecdouble_get(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecdouble_get(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 1) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecdouble_get. Expected 1");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< double > *arg1 = (vector< double > *) 0 ;
   int arg2 ;
   double *result = 0 ;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 1) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecdouble_get.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_double_t,0))){
     SWIG_fail_ptr("vecdouble_get",1,SWIGTYPE_p_vectorT_double_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
+  arg2 = (int)duk_to_number(ctx, -0);
   result = (double *) &(arg1)->get(arg2);
   SWIG_NewPointerObj(ctx,result,SWIGTYPE_p_double,0);  
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_vecdouble_set(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecdouble_set(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecdouble_set. Expected 2");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< double > *arg1 = (vector< double > *) 0 ;
   int arg2 ;
   double *arg3 = 0 ;
   double **argp3 ;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 2) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecdouble_set.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_double_t,0))){
     SWIG_fail_ptr("vecdouble_set",1,SWIGTYPE_p_vectorT_double_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
+  arg2 = (int)duk_to_number(ctx, -0);
   
-  if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,argv[1],(void**)&argp3,SWIGTYPE_p_p_double,0))){
+  if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,-1,(void**)&argp3,SWIGTYPE_p_p_double,0))){
     SWIG_fail_ptr("vecdouble_set",3,SWIGTYPE_p_p_double);
   }
   arg3 = *argp3;
   
   (arg1)->set(arg2,*arg3);
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_vecdouble_getitem(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecdouble_getitem(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 1) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecdouble_getitem. Expected 1");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< double > *arg1 = (vector< double > *) 0 ;
   int arg2 ;
   double result;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 1) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecdouble_getitem.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_double_t,0))){
     SWIG_fail_ptr("vecdouble_getitem",1,SWIGTYPE_p_vectorT_double_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
+  arg2 = (int)duk_to_number(ctx, -0);
   result = (double)vector_Sl_double_Sg__getitem(arg1,arg2);
   duk_push_number(ctx, (duk_double_t) result); 
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static duk_idx_t _wrap_vecdouble_setitem(duk_context *ctx, duk_idx_t function, duk_idx_t thisObject, size_t argc)
+static duk_ret_t _wrap_vecdouble_setitem(duk_context *ctx)
 {
   /* FRAGMENT: js_function */
+  if (duk_get_top(ctx) != 2) {
+    duk_push_string(ctx, "Illegal numargs for _wrap_vecdouble_setitem. Expected 2");
+    duk_throw(ctx);
+  }
+  duk_push_this(ctx);
+  void *thisObject = duk_get_heapptr(ctx, -1);
+  
   vector< double > *arg1 = (vector< double > *) 0 ;
   int arg2 ;
   double arg3 ;
-  
-  duk_idx_t jsresult;
-  
-  if(argc != 2) SWIG_exception_fail(SWIG_ERROR, "Illegal number of arguments for _wrap_vecdouble_setitem.");
   
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(ctx,thisObject,(void**)&arg1,SWIGTYPE_p_vectorT_double_t,0))){
     SWIG_fail_ptr("vecdouble_setitem",1,SWIGTYPE_p_vectorT_double_t);
   }
   
-  arg2 = (int)duk_to_number(ctx, argv[0]);
-  arg3 = (double)duk_to_number(ctx, argv[1]);
+  arg2 = (int)duk_to_number(ctx, -0);
+  arg3 = (double)duk_to_number(ctx, -1);
   vector_Sl_double_Sg__setitem(arg1,arg2,arg3);
   
-  return jsresult;
   
-  goto fail;
-fail:
-  return 0; /* A.K.A duk_push_undefined(ctx); */
+  return 1;
 }
 
 
-static void _wrap_delete_vecdouble(duk_idx_t thisObject)
+static duk_ret_t _wrap_delete_vecdouble(duk_context *ctx)
 {
   /* FRAGMENT: js_dtoroverride */
-  SwigPrivData* t = (SwigPrivData*) JSObjectGetPrivate(thisObject);
+  duk_push_this(ctx);
+  duk_get_prop_string(ctx, -1, "\FFprivate");
+  swig_duk_rawdata *t = (swig_duk_rawdata*)duk_get_pointer(ctx, -1);
   if(t) {
-    if (t->swigCMemOwn) {
-      vector< double > * arg1 = (vector< double > *)t->swigCObject;
+    if (t->own) {
+      vector< double > * arg1 = (vector< double > *)t->data;
       delete arg1;
     }
-    /* remove the private data to make sure that it isn't accessed elsewhere */
-    JSObjectSetPrivate(thisObject, NULL);
-    free(t);
+    // remove the private data to make sure that it isn't accessed elsewhere
+    duk_push_pointer(ctx, NULL);
+    duk_put_prop(ctx, -2);
+    duk_free(ctx, t);
+    return 0;
   }
+  return 0;
 }
 
 
@@ -1476,25 +1688,25 @@ static swig_duk_property _exports_vecdouble_properties[] = {
 static duk_function_list_entry _exports_vecdouble_functions[] = {
   /* FRAGMENT: duk_function_declaration */
   {
-    "get", _wrap_vecdouble_get, NULL
+    "get", _wrap_vecdouble_get, 1
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "set", _wrap_vecdouble_set, NULL
+    "set", _wrap_vecdouble_set, 2
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "getitem", _wrap_vecdouble_getitem, NULL
+    "getitem", _wrap_vecdouble_getitem, 1
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "setitem", _wrap_vecdouble_setitem, NULL
+    "setitem", _wrap_vecdouble_setitem, 2
   },
   
   
@@ -1553,13 +1765,13 @@ static swig_duk_property exports_properties[] = {
 static duk_function_list_entry exports_functions[] = {
   /* FRAGMENT: duk_function_declaration */
   {
-    "maxint", _wrap_maxint, NULL
+    "maxint", _wrap_maxint, 2
   },
   
   
   /* FRAGMENT: duk_function_declaration */
   {
-    "maxdouble", _wrap_maxdouble, NULL
+    "maxdouble", _wrap_maxdouble, 2
   },
   
   
@@ -1568,19 +1780,17 @@ static duk_function_list_entry exports_functions[] = {
   }
 };
 
-//static JSClassDefinition exports_classDefinition;
-//static duk_idx_t exports_object;
-
 
 SWIGRUNTIME void
 SWIG_duk_SetModule(duk_context *ctx, swig_module_info *swig_module) {
   duk_push_heap_stash(ctx);
-  duk_push_string(
+  duk_push_pointer(ctx, (void *)swig_module);
+  duk_put_prop_string(
     ctx,
+    -2,
     "swig_runtime_data_type_pointer" SWIG_RUNTIME_VERSION SWIG_TYPE_TABLE_NAME
   );
-  duk_push_pointer(ctx, (void *)swig_module);
-  duk_pop_n(ctx, 3); /* Tidy the stack. */
+  duk_pop_n(ctx, 1); /* Tidy the stack. */
 }
 
 SWIGRUNTIME swig_module_info *
@@ -1594,7 +1804,7 @@ SWIG_duk_GetModule(duk_context *ctx) {
   );
   if (duk_is_pointer(ctx,-1))
     ret=(swig_module_info*)duk_get_pointer(ctx,-1);
-  duk_pop(ctx); /* Tidy the stack. */
+  duk_pop_n(ctx, 2); /* Tidy the stack. */
   return ret;
 }
 
@@ -1843,106 +2053,120 @@ duk_ret_t swig_duk_init(duk_context *ctx) {
   /* SWIG's internal initialisation */
   SWIG_InitializeModule((void*)ctx);
   SWIG_PropagateClientData();  
-  
-  /* FIXME 
-  SWIG_duk_namespace_register(ctx,&swig_SwigModule,globalRegister);
-  
-  
 
-  if(globalRegister) {
-    lua_pushstring(L,swig_SwigModule.name);
-    lua_pushvalue(L,-2);
-    lua_rawset(L,-4);
-  }
-
-  SWIG_init_user(ctx);
-  */
-  /*
-   * Note: We do not clean up the stack here (Duktape does this for us). At this
-   * point, we have the global object and our module object on the stack. Returning
-   * one value makes the module object the result of the require command. 
-   */
-
-
-/* Initialize the base swig type object 
-    _SwigObject_objectDefinition.staticFunctions = _SwigObject_functions;
-    _SwigObject_objectDefinition.staticValues = _SwigObject_values;
-    _SwigObject_classRef = JSClassCreate(&_SwigObject_objectDefinition);
-
-    /Initialize the PackedData class 
-    _SwigPackedData_objectDefinition.staticFunctions = _SwigPackedData_functions;
-    _SwigPackedData_objectDefinition.staticValues = _SwigPackedData_values;
-    _SwigPackedData_objectDefinition.finalize = _wrap_SwigPackedData_delete;
-    _SwigPackedData_classRef = JSClassCreate(&_SwigPackedData_objectDefinition);
-    */
 
 // FIXME: Fix by convention in module loader by pushing parent object
 duk_push_global_object(ctx);
+/* Initialize the base swig type object FIXME */
+duk_push_object(ctx);
+duk_put_function_list(ctx, -1, _SwigObject_functions);
+duk_put_prop_string(ctx, -2, "SWIG");
+void *swig_obj_ptr = duk_get_heapptr(ctx, -1);
+/* Now the global object is at the stack top.*/
 duk_idx_t ns_idx = duk_push_object(ctx);
-swig_duk_install_const_properties(ctx, ns_idx, exports_properties);
+void *ns_ptr, *exports_ptr = duk_get_heapptr(ctx, -1);
+swig_duk_install_properties(ctx, ns_idx, exports_properties);
 duk_put_function_list(ctx, ns_idx, exports_functions);
 /*
-     * By the time we put the property string here, the stack will be...
-     * [parent_obj, namespace_obj] 
-     */
+    * By the time we put the property string here, the stack will be...
+    * [parent_obj, namespace_obj] 
+    * We want to set the property key example in the parent object.
+    */
 duk_put_prop_string(ctx, -2, "example");
-//printf("Stack before object name assignment: %i\n", duk_get_top(ctx));
-
-
 /* Create objects for namespaces */
-
-/* FRAGMENT: duk_nspace_definition */
-exports_functions;
-exports_properties;
-//exports_object = JSObjectMake(context, JSClassCreate(&exports_classDefinition), NULL);
 
 /* Register classes */
 
 /* FRAGMENT: duk_class_definition */
-_exports_vecint_classDefinition.staticFunctions = _exports_vecint_staticFunctions;
-_exports_vecint_classDefinition.staticValues = _exports_vecint_staticValues;
-_exports_vecint_classDefinition.callAsConstructor = _wrap_new_vecint;
-_exports_vecint_objectDefinition.finalize = _wrap_delete_vecint;
-_exports_vecint_objectDefinition.staticValues = _exports_vecint_properties;
-_exports_vecint_objectDefinition.staticFunctions = _exports_vecint_functions;
+/* Push constructor function; all Duktape/C functions are
+	 * "constructable" and can be called as 'new Foo()'.
+	 */
+duk_push_c_function(ctx, _wrap_new_vecint, DUK_VARARGS);
+/* Push MyObject.prototype object. */
 
 /* FRAGMENT: duk_class_noinherit */
-_exports_vecint_objectDefinition.parentClass = _SwigObject_classRef;
+/* Push a copy of the SWIG object to the value stack. */
+duk_push_heapptr(ctx, swig_obj_ptr);
+duk_dup(ctx, -1);
+duk_replace(ctx, -2);
 
 
-_exports_vecint_classRef = JSClassCreate(&_exports_vecint_objectDefinition);
-SWIGTYPE_p_vectorT_int_t->clientdata = _exports_vecint_classRef;
+/* The stack is now [constructor, prototype] */
+/* Install methods and static properties */
+swig_duk_install_properties(ctx, -1, _exports_vecint_staticValues);
+duk_put_function_list(ctx, -1, _exports_vecint_staticFunctions);
+swig_duk_install_properties(ctx, -1, _exports_vecint_properties);
+duk_put_function_list(ctx, -1, _exports_vecint_functions);
+/* Install finalizer into the prototype */
+duk_push_c_function(ctx, _wrap_delete_vecint, /*nargs*/ 0);
+duk_set_finalizer(ctx, -2);
+/* The stack is now [constructor, prototype (w/ finalizer)] */
+/* Set the constructor prototype to the ancestor object. */
+duk_set_prototype(ctx, -2);
+/* Setup references. */  
+void *_exports_vecint_ptr = duk_get_heapptr(ctx, -1);
+SWIGTYPE_p_vectorT_int_t->clientdata = _exports_vecint_ptr;
 
 
 /* FRAGMENT: duk_class_registration */
-JS_registerClass(ctx, exports_object, "vecint", &_exports_vecint_classDefinition);
+duk_push_heapptr(ctx, exports_ptr);
+duk_push_string(ctx, "vecint");
+duk_push_heapptr(ctx, _exports_vecint_ptr);
+duk_put_prop(ctx, -3); /* Register class in the namespace */
 
 
 /* FRAGMENT: duk_class_definition */
-_exports_vecdouble_classDefinition.staticFunctions = _exports_vecdouble_staticFunctions;
-_exports_vecdouble_classDefinition.staticValues = _exports_vecdouble_staticValues;
-_exports_vecdouble_classDefinition.callAsConstructor = _wrap_new_vecdouble;
-_exports_vecdouble_objectDefinition.finalize = _wrap_delete_vecdouble;
-_exports_vecdouble_objectDefinition.staticValues = _exports_vecdouble_properties;
-_exports_vecdouble_objectDefinition.staticFunctions = _exports_vecdouble_functions;
+/* Push constructor function; all Duktape/C functions are
+	 * "constructable" and can be called as 'new Foo()'.
+	 */
+duk_push_c_function(ctx, _wrap_new_vecdouble, DUK_VARARGS);
+/* Push MyObject.prototype object. */
 
 /* FRAGMENT: duk_class_noinherit */
-_exports_vecdouble_objectDefinition.parentClass = _SwigObject_classRef;
+/* Push a copy of the SWIG object to the value stack. */
+duk_push_heapptr(ctx, swig_obj_ptr);
+duk_dup(ctx, -1);
+duk_replace(ctx, -2);
 
 
-_exports_vecdouble_classRef = JSClassCreate(&_exports_vecdouble_objectDefinition);
-SWIGTYPE_p_vectorT_double_t->clientdata = _exports_vecdouble_classRef;
+/* The stack is now [constructor, prototype] */
+/* Install methods and static properties */
+swig_duk_install_properties(ctx, -1, _exports_vecdouble_staticValues);
+duk_put_function_list(ctx, -1, _exports_vecdouble_staticFunctions);
+swig_duk_install_properties(ctx, -1, _exports_vecdouble_properties);
+duk_put_function_list(ctx, -1, _exports_vecdouble_functions);
+/* Install finalizer into the prototype */
+duk_push_c_function(ctx, _wrap_delete_vecdouble, /*nargs*/ 0);
+duk_set_finalizer(ctx, -2);
+/* The stack is now [constructor, prototype (w/ finalizer)] */
+/* Set the constructor prototype to the ancestor object. */
+duk_set_prototype(ctx, -2);
+/* Setup references. */  
+void *_exports_vecdouble_ptr = duk_get_heapptr(ctx, -1);
+SWIGTYPE_p_vectorT_double_t->clientdata = _exports_vecdouble_ptr;
 
 
 /* FRAGMENT: duk_class_registration */
-JS_registerClass(ctx, exports_object, "vecdouble", &_exports_vecdouble_classDefinition);
+duk_push_heapptr(ctx, exports_ptr);
+duk_push_string(ctx, "vecdouble");
+duk_push_heapptr(ctx, _exports_vecdouble_ptr);
+duk_put_prop(ctx, -3); /* Register class in the namespace */
 
-
-/* Register namespaces */
 
 
 /* Just return the topmost value on the stack, our module. */
 return 1;
+
+/* Initialize the base swig type object */
+//_SwigObject_objectDefinition.staticFunctions = _SwigObject_functions;
+//_SwigObject_objectDefinition.staticValues = _SwigObject_values;
+//_SwigObject_classRef = JSClassCreate(&_SwigObject_objectDefinition);
+
+/* Initialize the PackedData class */
+//_SwigPackedData_objectDefinition.staticFunctions = _SwigPackedData_functions;
+//_SwigPackedData_objectDefinition.staticValues = _SwigPackedData_values;
+//_SwigPackedData_objectDefinition.finalize = _wrap_SwigPackedData_delete;
+//_SwigPackedData_classRef = JSClassCreate(&_SwigPackedData_objectDefinition);
 }
 #ifdef __cplusplus
 }

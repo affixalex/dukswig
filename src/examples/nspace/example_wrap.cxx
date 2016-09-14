@@ -780,8 +780,8 @@ extern "C" {
 /* Structure for variable linking table */
 typedef struct {
   const char *name;
-  duk_idx_t get;
-  duk_idx_t set;
+  duk_c_function get;
+  duk_c_function set;
 } swig_duk_var_info;
 
 typedef struct swig_duk_method {
@@ -806,12 +806,12 @@ typedef struct {
 } swig_duk_property;
 
 struct swig_duk_class;
-/* Can be used to create namespaces. Currently used to wrap class static methods/variables/constants */
+/* Can be used to create namespaces. */
 typedef struct swig_duk_namespace {
-  const char            *name;
-  swig_duk_method       *ns_methods;
-  swig_duk_property     *ns_properties;
-  swig_duk_const_info   *ns_constants;
+  const char *name;
+  duk_function_list_entry *ns_methods;
+  swig_duk_property *ns_properties;
+  swig_duk_const_info *ns_constants;
   struct swig_duk_class **ns_classes;
   struct swig_duk_namespace **ns_namespaces;
 } swig_duk_namespace;
@@ -1032,23 +1032,26 @@ swig_duk_install_properties(
 SWIGINTERN void SWIG_duk_create_class_registry(duk_context *ctx)
 {
   /* create the SWIG registry object */
+  duk_set_top(ctx, 0);
   duk_push_heap_stash(ctx);
+  duk_push_string(ctx, "registry");
   duk_push_object(ctx);
-  duk_put_prop_string(ctx, -2, "SWIG");
-  duk_pop(ctx);
+  duk_put_prop(ctx, -3);
+  /* The heap stash is at the top of the value stack now. */
 }
 
 
 /* gets the swig registry (or creates it) */
 SWIGINTERN void SWIG_duk_get_class_registry(duk_context *ctx) {
+  duk_set_top(ctx, 0);
   duk_push_heap_stash(ctx);
-  duk_get_prop_string(ctx, -1, "SWIG");
+  duk_get_prop_string(ctx, -1, "registry");
   if (!duk_is_object(ctx,-1))  /* not there */
   {  /* must be first time, so add it */
     duk_pop_n(ctx,1);  /* remove the result */
     SWIG_duk_create_class_registry(ctx);
-    /* then get it */
-    duk_get_prop_string(ctx, -1, "SWIG");
+    /* then get the class registry */
+    duk_get_prop_string(ctx, -1, "registry");
   }
 }
 
@@ -1067,6 +1070,9 @@ SWIGINTERN void SWIG_duk_get_class_prototype(duk_context *ctx,const char *cname)
 /* helper to add prototype to new duk object */
 SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
 {
+  #ifdef SWIGRUNTIME_DEBUG
+  printf("Adding prototype!\n");
+  #endif
   if (type->clientdata)  /* there is clientdata: so add the prototype */
   {
     #ifdef SWIGRUNTIME_DEBUG
@@ -1087,9 +1093,12 @@ SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
 /* pushes a new fixed buffer into the duk stack */
 SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_type_info *type,bool own)
 {
-  duk_size_t sz; /* FIXME */
+  duk_size_t sz;
   swig_duk_userdata *usr;
   if (!ptr){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("WARNING: NewPointerObj returning a NULL pointer.\n");
+    #endif
     duk_push_undefined(ctx);
     return 1;
   }
@@ -1097,7 +1106,7 @@ SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_typ
   usr->ptr=ptr;  /* set the ptr */
   usr->type=type;
   usr->own=own;
-  SWIG_duk_AddPrototype(ctx,type);
+  //SWIG_duk_AddPrototype(ctx,type); /* add prototype */
   return 1;
 }
 
@@ -1111,7 +1120,13 @@ SWIGRUNTIME int SWIG_duk_ConvertPtr(duk_context *ctx,void *object,void **ptr,swi
   duk_push_heapptr(ctx, object);
   duk_get_prop_string(ctx, -1, "\FFprivate");
   /* special case: duk undefined => NULL pointer */
-  if (duk_is_undefined(ctx, -1)){*ptr=NULL; return SWIG_OK;}
+  if (duk_is_undefined(ctx, -1)){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("Converted a NULL pointer.\n");
+    #endif
+    *ptr=NULL;
+    return SWIG_OK;
+  }
   usr=(swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);  /* get data */
   duk_pop_n(ctx, 2); /* clean up the stack */
   if (usr) {
@@ -1254,8 +1269,14 @@ static duk_ret_t _wrap_module_variable_get(duk_context *ctx)
 
 static duk_idx_t _wrap_new_MyWorld_World(duk_context *ctx)
 {
-  /* FRAGMENT: js_ctor */  
+  /* FRAGMENT: js_ctor */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called _wrap_new_MyWorld_World\n");
+#endif
   if (duk_get_top(ctx) != 0) {
+#ifdef SWIGRUNTIME_DEBUG
+    printf("Illegal number of arguments for _wrap_new_Circle.\n");
+#endif
     duk_push_string(ctx, "Illegal number of arguments for _wrap_new_MyWorld_World.");
     duk_throw(ctx);
   }
@@ -1265,10 +1286,11 @@ static duk_idx_t _wrap_new_MyWorld_World(duk_context *ctx)
   
   
   duk_push_this(ctx);
+  duk_push_string(ctx, "\FFprivate");
   SWIG_duk_NewPointerObj(ctx, result, SWIGTYPE_p_MyWorld__World, SWIG_POINTER_OWN);  
-  duk_put_prop_string(ctx, -2, "\FFprivate");
+  duk_put_prop(ctx, -3);
   
-  return 1;
+  return 0;
 }
 
 
@@ -1342,6 +1364,7 @@ static duk_ret_t _wrap_delete_MyWorld_World(duk_context *ctx)
     duk_free(ctx, t);
     return 0;
   }
+  return 0;
 }
 
 
@@ -1441,8 +1464,14 @@ static duk_ret_t _wrap_MyWorld_Nested_Dweller_count(duk_context *ctx)
 
 static duk_idx_t _wrap_new_MyWorld_Nested_Dweller(duk_context *ctx)
 {
-  /* FRAGMENT: js_ctor */  
+  /* FRAGMENT: js_ctor */
+#ifdef SWIGRUNTIME_DEBUG
+  printf("Called _wrap_new_MyWorld_Nested_Dweller\n");
+#endif
   if (duk_get_top(ctx) != 0) {
+#ifdef SWIGRUNTIME_DEBUG
+    printf("Illegal number of arguments for _wrap_new_Circle.\n");
+#endif
     duk_push_string(ctx, "Illegal number of arguments for _wrap_new_MyWorld_Nested_Dweller.");
     duk_throw(ctx);
   }
@@ -1452,10 +1481,11 @@ static duk_idx_t _wrap_new_MyWorld_Nested_Dweller(duk_context *ctx)
   
   
   duk_push_this(ctx);
+  duk_push_string(ctx, "\FFprivate");
   SWIG_duk_NewPointerObj(ctx, result, SWIGTYPE_p_MyWorld__Nested__Dweller, SWIG_POINTER_OWN);  
-  duk_put_prop_string(ctx, -2, "\FFprivate");
+  duk_put_prop(ctx, -3);
   
-  return 1;
+  return 0;
 }
 
 
@@ -1478,6 +1508,7 @@ static duk_ret_t _wrap_delete_MyWorld_Nested_Dweller(duk_context *ctx)
     duk_free(ctx, t);
     return 0;
   }
+  return 0;
 }
 
 
@@ -1886,7 +1917,7 @@ void *swig_obj_ptr = duk_get_heapptr(ctx, -1);
 //duk_pop_n(ctx, 1);
 
 duk_idx_t ns_idx = duk_push_object(ctx);
-void *ns_ptr = duk_get_heapptr(ctx, -1);
+void *ns_ptr, *exports_ptr = duk_get_heapptr(ctx, -1);
 swig_duk_install_properties(ctx, ns_idx, exports_properties);
 duk_put_function_list(ctx, ns_idx, exports_functions);
 /*
@@ -1897,90 +1928,72 @@ duk_put_function_list(ctx, ns_idx, exports_functions);
 duk_put_prop_string(ctx, -2, "example");
 /* Create objects for namespaces */
 
-
-duk_push_heapptr(ctx, ns_ptr); /* Register it in the exports object. */
-//duk_install_properties(ctx, -1, MyWorld_staticValues);
+duk_push_heapptr(ctx, exports_ptr);
 duk_push_string(ctx, "MyWorld");
-duk_idx_t MyWorld_idx = duk_push_object(ctx);
-void *_pMyWorld_ptr = duk_get_heapptr(ctx, -1);
+duk_push_object(ctx);
+swig_duk_install_properties(ctx, -1, MyWorld_properties);
+duk_put_function_list(ctx, -1, MyWorld_functions);
 duk_put_prop(ctx, -3);
+void *MyWorld_ptr = duk_get_heapptr(ctx, -1);
 
-
-duk_push_heapptr(ctx, ns_ptr); /* Register it in the exports object. */
-//duk_install_properties(ctx, -1, MyWorld_Nested_staticValues);
+duk_push_heapptr(ctx, MyWorld_ptr);
 duk_push_string(ctx, "Nested");
-duk_idx_t MyWorld_Nested_idx = duk_push_object(ctx);
-void *_pMyWorld_Nested_ptr = duk_get_heapptr(ctx, -1);
+duk_push_object(ctx);
+swig_duk_install_properties(ctx, -1, MyWorld_Nested_properties);
+duk_put_function_list(ctx, -1, MyWorld_Nested_functions);
 duk_put_prop(ctx, -3);
+void *MyWorld_Nested_ptr = duk_get_heapptr(ctx, -1);
 
 /* Register classes */
 
 /* FRAGMENT: duk_class_definition */
-/* FIXME: Specify number of arguments during codegen. */
-duk_idx_t _MyWorld_World_idx = duk_push_c_function(ctx, _wrap_new_MyWorld_World, DUK_VARARGS);
-// FIXME USE _wrap_new_MyWorld_World
-void *_p_MyWorld_World_ptr = duk_get_heapptr(ctx, -1);
-swig_duk_install_properties(ctx, _MyWorld_World_idx, _MyWorld_World_staticValues);
-duk_put_function_list(ctx, _MyWorld_World_idx, _MyWorld_World_staticFunctions);
-swig_duk_install_properties(ctx, _MyWorld_World_idx, _MyWorld_World_properties);
-duk_put_function_list(ctx, _MyWorld_World_idx, _MyWorld_World_functions);
-duk_push_c_function(ctx, _wrap_delete_MyWorld_World, 0);
-duk_set_finalizer(ctx, _MyWorld_World_idx);
-duk_pop(ctx); /* Pop the finalizer C function from the stack */
+duk_push_c_function(ctx, _wrap_new_MyWorld_World, DUK_VARARGS);
 
 /* FRAGMENT: duk_class_noinherit */
-duk_push_heap_stash(ctx);
-duk_get_prop_string(ctx, -1, "SWIG");
-duk_set_prototype(ctx, _MyWorld_World_idx);
-void *_p_World_ptr; /*TEST*/
-//_MyWorld_World_objectDefinition.parentClass = _SwigObject_classRef;
+duk_push_heapptr(ctx, swig_obj_ptr);
 
 
-//_MyWorld_World_classRef = JSClassCreate(&_MyWorld_World_objectDefinition);
-SWIGTYPE_p_MyWorld__World->clientdata = _p_MyWorld_World_ptr;
-//duk_pop_n(ctx, 2);
+swig_duk_install_properties(ctx, -1, _MyWorld_World_staticValues);
+duk_put_function_list(ctx, -1, _MyWorld_World_staticFunctions);
+swig_duk_install_properties(ctx, -1, _MyWorld_World_properties);
+duk_put_function_list(ctx, -1, _MyWorld_World_functions);
+duk_push_c_function(ctx, _wrap_delete_MyWorld_World, 0);
+duk_set_finalizer(ctx, -2);
+duk_pop(ctx);
+void *_MyWorld_World_ptr = duk_get_heapptr(ctx, -1);
+SWIGTYPE_p_MyWorld__World->clientdata = _MyWorld_World_ptr;
 
 
 /* FRAGMENT: duk_class_registration */
-duk_push_heapptr(ctx, _pMyWorld_ptr);
+duk_push_heapptr(ctx, MyWorld_ptr);
 duk_push_string(ctx, "World");
-duk_push_heapptr(ctx, _p_MyWorld_World_ptr);
+duk_push_heapptr(ctx, _MyWorld_World_ptr);
 duk_put_prop(ctx, -3); /* Register class in the namespace */
-duk_pop(ctx); /* Pop the namespace pointer off the value stack. */
 
 
 /* FRAGMENT: duk_class_definition */
-/* FIXME: Specify number of arguments during codegen. */
-duk_idx_t _MyWorld_Nested_Dweller_idx = duk_push_c_function(ctx, _wrap_new_MyWorld_Nested_Dweller, DUK_VARARGS);
-// FIXME USE _wrap_new_MyWorld_Nested_Dweller
-void *_p_MyWorld_Nested_Dweller_ptr = duk_get_heapptr(ctx, -1);
-swig_duk_install_properties(ctx, _MyWorld_Nested_Dweller_idx, _MyWorld_Nested_Dweller_staticValues);
-duk_put_function_list(ctx, _MyWorld_Nested_Dweller_idx, _MyWorld_Nested_Dweller_staticFunctions);
-swig_duk_install_properties(ctx, _MyWorld_Nested_Dweller_idx, _MyWorld_Nested_Dweller_properties);
-duk_put_function_list(ctx, _MyWorld_Nested_Dweller_idx, _MyWorld_Nested_Dweller_functions);
-duk_push_c_function(ctx, _wrap_delete_MyWorld_Nested_Dweller, 0);
-duk_set_finalizer(ctx, _MyWorld_Nested_Dweller_idx);
-duk_pop(ctx); /* Pop the finalizer C function from the stack */
+duk_push_c_function(ctx, _wrap_new_MyWorld_Nested_Dweller, DUK_VARARGS);
 
 /* FRAGMENT: duk_class_noinherit */
-duk_push_heap_stash(ctx);
-duk_get_prop_string(ctx, -1, "SWIG");
-duk_set_prototype(ctx, _MyWorld_Nested_Dweller_idx);
-void *_p_Dweller_ptr; /*TEST*/
-//_MyWorld_Nested_Dweller_objectDefinition.parentClass = _SwigObject_classRef;
+duk_push_heapptr(ctx, swig_obj_ptr);
 
 
-//_MyWorld_Nested_Dweller_classRef = JSClassCreate(&_MyWorld_Nested_Dweller_objectDefinition);
-SWIGTYPE_p_MyWorld__Nested__Dweller->clientdata = _p_MyWorld_Nested_Dweller_ptr;
-//duk_pop_n(ctx, 2);
+swig_duk_install_properties(ctx, -1, _MyWorld_Nested_Dweller_staticValues);
+duk_put_function_list(ctx, -1, _MyWorld_Nested_Dweller_staticFunctions);
+swig_duk_install_properties(ctx, -1, _MyWorld_Nested_Dweller_properties);
+duk_put_function_list(ctx, -1, _MyWorld_Nested_Dweller_functions);
+duk_push_c_function(ctx, _wrap_delete_MyWorld_Nested_Dweller, 0);
+duk_set_finalizer(ctx, -2);
+duk_pop(ctx);
+void *_MyWorld_Nested_Dweller_ptr = duk_get_heapptr(ctx, -1);
+SWIGTYPE_p_MyWorld__Nested__Dweller->clientdata = _MyWorld_Nested_Dweller_ptr;
 
 
 /* FRAGMENT: duk_class_registration */
-duk_push_heapptr(ctx, _pMyWorld_Nested_ptr);
+duk_push_heapptr(ctx, MyWorld_Nested_ptr);
 duk_push_string(ctx, "Dweller");
-duk_push_heapptr(ctx, _p_MyWorld_Nested_Dweller_ptr);
+duk_push_heapptr(ctx, _MyWorld_Nested_Dweller_ptr);
 duk_put_prop(ctx, -3); /* Register class in the namespace */
-duk_pop(ctx); /* Pop the namespace pointer off the value stack. */
 
 
 

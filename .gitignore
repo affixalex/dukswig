@@ -4,3 +4,6 @@ libduktape.dylib
 *.o
 *.so
 *.dylib
+src/examples/*/example_wrap.*
+src/examples/*/*.dSYM
+src/*.dSYM

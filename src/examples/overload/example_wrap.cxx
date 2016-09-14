@@ -780,8 +780,8 @@ extern "C" {
 /* Structure for variable linking table */
 typedef struct {
   const char *name;
-  duk_idx_t get;
-  duk_idx_t set;
+  duk_c_function get;
+  duk_c_function set;
 } swig_duk_var_info;
 
 typedef struct swig_duk_method {
@@ -806,12 +806,12 @@ typedef struct {
 } swig_duk_property;
 
 struct swig_duk_class;
-/* Can be used to create namespaces. Currently used to wrap class static methods/variables/constants */
+/* Can be used to create namespaces. */
 typedef struct swig_duk_namespace {
-  const char            *name;
-  swig_duk_method       *ns_methods;
-  swig_duk_property     *ns_properties;
-  swig_duk_const_info   *ns_constants;
+  const char *name;
+  duk_function_list_entry *ns_methods;
+  swig_duk_property *ns_properties;
+  swig_duk_const_info *ns_constants;
   struct swig_duk_class **ns_classes;
   struct swig_duk_namespace **ns_namespaces;
 } swig_duk_namespace;
@@ -1032,23 +1032,26 @@ swig_duk_install_properties(
 SWIGINTERN void SWIG_duk_create_class_registry(duk_context *ctx)
 {
   /* create the SWIG registry object */
+  duk_set_top(ctx, 0);
   duk_push_heap_stash(ctx);
+  duk_push_string(ctx, "registry");
   duk_push_object(ctx);
-  duk_put_prop_string(ctx, -2, "SWIG");
-  duk_pop(ctx);
+  duk_put_prop(ctx, -3);
+  /* The heap stash is at the top of the value stack now. */
 }
 
 
 /* gets the swig registry (or creates it) */
 SWIGINTERN void SWIG_duk_get_class_registry(duk_context *ctx) {
+  duk_set_top(ctx, 0);
   duk_push_heap_stash(ctx);
-  duk_get_prop_string(ctx, -1, "SWIG");
+  duk_get_prop_string(ctx, -1, "registry");
   if (!duk_is_object(ctx,-1))  /* not there */
   {  /* must be first time, so add it */
     duk_pop_n(ctx,1);  /* remove the result */
     SWIG_duk_create_class_registry(ctx);
-    /* then get it */
-    duk_get_prop_string(ctx, -1, "SWIG");
+    /* then get the class registry */
+    duk_get_prop_string(ctx, -1, "registry");
   }
 }
 
@@ -1067,6 +1070,9 @@ SWIGINTERN void SWIG_duk_get_class_prototype(duk_context *ctx,const char *cname)
 /* helper to add prototype to new duk object */
 SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
 {
+  #ifdef SWIGRUNTIME_DEBUG
+  printf("Adding prototype!\n");
+  #endif
   if (type->clientdata)  /* there is clientdata: so add the prototype */
   {
     #ifdef SWIGRUNTIME_DEBUG
@@ -1087,9 +1093,12 @@ SWIGINTERN void SWIG_duk_AddPrototype(duk_context *ctx,swig_type_info *type)
 /* pushes a new fixed buffer into the duk stack */
 SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_type_info *type,bool own)
 {
-  duk_size_t sz; /* FIXME */
+  duk_size_t sz;
   swig_duk_userdata *usr;
   if (!ptr){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("WARNING: NewPointerObj returning a NULL pointer.\n");
+    #endif
     duk_push_undefined(ctx);
     return 1;
   }
@@ -1097,7 +1106,7 @@ SWIGRUNTIME duk_ret_t SWIG_duk_NewPointerObj(duk_context *ctx,void *ptr,swig_typ
   usr->ptr=ptr;  /* set the ptr */
   usr->type=type;
   usr->own=own;
-  SWIG_duk_AddPrototype(ctx,type); /* add prototype */
+  //SWIG_duk_AddPrototype(ctx,type); /* add prototype */
   return 1;
 }
 
@@ -1111,7 +1120,13 @@ SWIGRUNTIME int SWIG_duk_ConvertPtr(duk_context *ctx,void *object,void **ptr,swi
   duk_push_heapptr(ctx, object);
   duk_get_prop_string(ctx, -1, "\FFprivate");
   /* special case: duk undefined => NULL pointer */
-  if (duk_is_undefined(ctx, -1)){*ptr=NULL; return SWIG_OK;}
+  if (duk_is_undefined(ctx, -1)){
+    #ifdef SWIGRUNTIME_DEBUG
+    printf("Converted a NULL pointer.\n");
+    #endif
+    *ptr=NULL;
+    return SWIG_OK;
+  }
   usr=(swig_duk_userdata*)duk_to_fixed_buffer(ctx, -1, &sz);  /* get data */
   duk_pop_n(ctx, 2); /* clean up the stack */
   if (usr) {
@@ -1202,7 +1217,7 @@ static duk_ret_t _wrap_f__SWIG_0(duk_context *ctx)
   /* FRAGMENT: js_overloaded_function */
   
   if(duk_get_top(ctx) != 0) {
-    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_0."); 
+    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_0.");
   }
   
   
@@ -1218,7 +1233,7 @@ static duk_ret_t _wrap_f__SWIG_1(duk_context *ctx)
   /* FRAGMENT: js_overloaded_function */
   
   if(duk_get_top(ctx) != 1) {
-    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_1."); 
+    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_1.");
   }
   
   int arg1 ;
@@ -1236,7 +1251,7 @@ static duk_ret_t _wrap_f__SWIG_2(duk_context *ctx)
   /* FRAGMENT: js_overloaded_function */
   
   if(duk_get_top(ctx) != 2) {
-    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_2."); 
+    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_2.");
   }
   
   int arg1 ;
@@ -1256,7 +1271,7 @@ static duk_ret_t _wrap_f__SWIG_3(duk_context *ctx)
   /* FRAGMENT: js_overloaded_function */
   
   if(duk_get_top(ctx) != 1) {
-    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_3."); 
+    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_3.");
   }
   
   char *arg1 = (char *) 0 ;
@@ -1274,7 +1289,7 @@ static duk_ret_t _wrap_f__SWIG_4(duk_context *ctx)
   /* FRAGMENT: js_overloaded_function */
   
   if(duk_get_top(ctx) != 1) {
-    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_4."); 
+    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_4.");
   }
   
   bool arg1 ;
@@ -1292,7 +1307,7 @@ static duk_ret_t _wrap_f__SWIG_5(duk_context *ctx)
   /* FRAGMENT: js_overloaded_function */
   
   if(duk_get_top(ctx) != 1) {
-    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_5."); 
+    duk_push_string(ctx, "Illegal number of arguments for _wrap_f__SWIG_5.");
   }
   
   long arg1 ;
