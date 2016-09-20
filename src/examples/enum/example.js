@@ -30,4 +30,6 @@ f.enum_test(example.Foo.LUDICROUS);
 print("example.BLUE= " + example.BLUE);
 
 // enum value LUDICROUS of enum Foo::speed is accessed as as property of cconst
-print("example.speed.LUDICROUS= " + example.Foo.LUDICROUS); 
+print("example.speed.LUDICROUS= " + example.Foo.LUDICROUS);
+
+print("DONE!");

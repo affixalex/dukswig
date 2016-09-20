@@ -12,6 +12,7 @@ Vagrant.configure(2) do |config|
     sudo apk add alpine-sdk
     sudo apk add autoconf
     sudo apk add automake
+		sudo apk add libpcre32
     sudo apk add git
     sudo apk add vim
     cd ~vagrant && git clone https://github.com/hypoalex/swig.git

@@ -12,10 +12,12 @@ print(" b = " + example.intp_value(b));
 print(" c = " + example.intp_value(c));
 
 //// Call the add() function with some pointers
+//print("Wat");
 example.add(a, b, c);
 
 //
 //// Now get the result
+print("Wat1");
 r = example.intp_value(c);
 print(" 37 + 42 = " + r);
 

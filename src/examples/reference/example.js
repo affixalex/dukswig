@@ -57,7 +57,7 @@ for (i = 0; i < 1000000; i++) {
 }
 //---------TODO---------
 //----- Clean up -----
-//print("Cleaning up");
+//==print("Cleaning up");
 
 //example.delete_VectorArray(va);
 //example.delete_Vector(a);

@@ -5,18 +5,16 @@ DUK_CFLAGS = -DDUK_OPT_VERBOSE_ERRORS \
 	-DDUK_OPT_PARANOID_ERRORS \
 	-DDUK_OPT_AUGMENT_ERRORS \
 	-DDUK_OPT_NO_BUFFEROBJECT_SUPPORT \
-	-DDUK_OPT_NO_COMMONJS_MODULES \
 	-DDUK_OPT_JSON_STRINGIFY_FASTPATH \
 	-DDUK_OPT_INTERRUPT_COUNTER \
 	-DDUK_OPT_FASTINT \
-	-DDUK_OPT_CPP_EXCEPTIONS \
 	-DDUK_OPT_DEBUG
 
 libduktape:
 ifeq ($(UNAME_S),Linux)
-	g++ $(DUK_CFLAGS) -shared -fPIC -std=c99 src/duktape.c -o libduktape.so
+	gcc $(DUK_CFLAGS) -shared -fPIC -std=c99 src/duktape.c -o libduktape.so
 else ifeq ($(UNAME_S),Darwin)
-	clang++ $(DUK_CFLAGS) -dynamiclib src/duktape.c -fvisibility=hidden \
+	clang -g3 $(DUK_CFLAGS) -dynamiclib src/duktape.c -fvisibility=hidden \
 	-o libduktape.dylib
 endif
 
